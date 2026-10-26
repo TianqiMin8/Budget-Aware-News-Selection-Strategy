@@ -1,0 +1,8 @@
+{
+  "tickers": ["AAPL", "MSFT", "NVDA"],
+  "token_budgets": [500, 1000, 2000],
+  "selection_methods": ["recency", "relevance", "mmr", "novelty_coverage"],
+  "prediction_horizon": "same_session_open_to_close",
+  "random_seed": 42,
+  "ridge_alpha": 1.0
+}

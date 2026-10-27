@@ -26,3 +26,6 @@ data/processed/*
 !data/processed/.gitkeep
 outputs/*
 !outputs/.gitkeep
+
+# macOS system files
+.DS_Store

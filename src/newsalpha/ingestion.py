@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,16 @@ REQUIRED_NEWS_COLUMNS = {
     "title",
     "text",
     "url",
+}
+
+ARCHIVED_NEWS_COLUMNS = {
+    "ID",
+    "Date",
+    "Article_title",
+    "Stock_symbol",
+    "Url",
+    "Article",
+    "Lsa_summary",
 }
 
 
@@ -56,6 +68,87 @@ def load_news(path: str | Path) -> pd.DataFrame:
             raise ValueError("relevance_score must be numeric and non-empty when the column is present")
 
     return frame
+
+
+def load_company_news_archive(path: str | Path, ticker: str) -> pd.DataFrame:
+    """Load one company's archived CSV and normalize its columns to the project schema."""
+    symbol = ticker.upper()
+    if not re.fullmatch(r"[A-Z]+", symbol):
+        raise ValueError(f"Invalid ticker symbol: {ticker!r}")
+    member = f"financial_news_project/{symbol}_news.csv"
+    with zipfile.ZipFile(path) as archive:
+        try:
+            with archive.open(member) as source:
+                frame = pd.read_csv(source, usecols=ARCHIVED_NEWS_COLUMNS)
+        except KeyError as error:
+            raise ValueError(f"News archive does not contain data for ticker {symbol}") from error
+
+    missing = ARCHIVED_NEWS_COLUMNS.difference(frame.columns)
+    if missing:
+        raise ValueError(f"Archived news is missing columns: {', '.join(sorted(missing))}")
+    frame = frame.rename(
+        columns={
+            "ID": "article_id",
+            "Date": "published_at",
+            "Article_title": "title",
+            "Stock_symbol": "ticker",
+            "Url": "url",
+            "Article": "text",
+        }
+    )
+    frame["article_id"] = frame["article_id"].map(_normalize_article_id)
+    frame["published_at"] = pd.to_datetime(frame["published_at"], utc=True, errors="coerce")
+    frame["ticker"] = frame["ticker"].fillna("").astype(str).str.strip()
+    frame["title"] = frame["title"].fillna("").astype(str).str.strip()
+    frame["text"] = frame["text"].fillna("").astype(str).str.strip()
+    frame["url"] = frame["url"].fillna("").astype(str).str.strip()
+    frame["text"] = frame["text"].where(frame["text"] != "", frame["Lsa_summary"].fillna(""))
+    frame["text"] = frame["text"].where(frame["text"] != "", frame["title"])
+    frame = frame.drop(columns=["Lsa_summary"])
+    if frame["published_at"].isna().any():
+        raise ValueError(f"Archived news contains invalid timestamps for ticker {symbol}")
+    if frame["article_id"].eq("").any() or frame["article_id"].duplicated().any():
+        raise ValueError(f"Archived news article IDs must be non-empty and unique for {symbol}")
+    if frame[["title", "text", "url"]].eq("").any().any():
+        raise ValueError(f"Archived news has an empty title, text, or URL for ticker {symbol}")
+    if not frame["ticker"].str.casefold().eq(symbol.casefold()).all():
+        raise ValueError(f"News archive member for {symbol} contains another ticker")
+    return frame.sort_values("published_at").reset_index(drop=True)
+
+
+def _normalize_article_id(value: Any) -> str:
+    if pd.isna(value):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def load_stock_prices_archive(path: str | Path) -> pd.DataFrame:
+    """Load the combined daily-price CSV from the project's stock-price archive."""
+    member = "stock_prices/all_stocks_with_returns.csv"
+    with zipfile.ZipFile(path) as archive:
+        try:
+            with archive.open(member) as source:
+                frame = pd.read_csv(source)
+        except KeyError as error:
+            raise ValueError(f"Stock-price archive does not contain {member}") from error
+    required = {
+        "Date",
+        "Stock_symbol",
+        "Adj Close",
+        "Volume",
+        "Future_Return",
+    }
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"Archived stock prices are missing columns: {', '.join(sorted(missing))}")
+    frame = frame.rename(columns={"Date": "date", "Stock_symbol": "ticker"})
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.date
+    frame["ticker"] = frame["ticker"].fillna("").astype(str).str.strip().str.upper()
+    if frame["date"].isna().any() or frame["ticker"].eq("").any():
+        raise ValueError("Archived stock prices contain invalid dates or ticker symbols")
+    return frame.sort_values(["ticker", "date"]).reset_index(drop=True)
 
 
 def filter_as_of(

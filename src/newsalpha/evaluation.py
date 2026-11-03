@@ -4,6 +4,30 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+
+def regression_metrics(
+    frame: pd.DataFrame,
+    prediction_column: str = "prediction",
+    target_column: str = "target_return",
+) -> dict[str, float | int]:
+    """Return regression errors and sign-based directional accuracy."""
+    required = {prediction_column, target_column}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"Evaluation frame is missing columns: {', '.join(sorted(missing))}")
+    valid = frame[[prediction_column, target_column]].dropna()
+    if valid.empty:
+        raise ValueError("At least one valid prediction and target pair is required")
+    predictions = valid[prediction_column].to_numpy(dtype=float)
+    targets = valid[target_column].to_numpy(dtype=float)
+    return {
+        "n_observations": int(len(valid)),
+        "mae": float(mean_absolute_error(targets, predictions)),
+        "rmse": float(np.sqrt(mean_squared_error(targets, predictions))),
+        "directional_accuracy": float(np.mean(np.sign(targets) == np.sign(predictions))),
+    }
 
 
 def chronological_split(

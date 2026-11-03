@@ -1,4 +1,4 @@
-"""Fit the proposal's Ridge predictor on explicit numeric features and a return target."""
+"""Fit a standardized Ridge predictor on explicit numeric features and a return target."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from typing import Sequence
 
 import pandas as pd
 from sklearn.linear_model import Ridge
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
@@ -15,7 +17,7 @@ class RidgeReturnModel:
 
     alpha: float = 1.0
     feature_columns: tuple[str, ...] = ()
-    estimator: Ridge | None = None
+    estimator: Pipeline | None = None
 
     def fit(
         self,
@@ -35,7 +37,7 @@ class RidgeReturnModel:
         if training_frame[target_column].isna().any():
             raise ValueError("Training target contains missing values")
         self.feature_columns = tuple(feature_columns)
-        self.estimator = Ridge(alpha=self.alpha)
+        self.estimator = make_pipeline(StandardScaler(), Ridge(alpha=self.alpha))
         self.estimator.fit(training_frame[list(self.feature_columns)], training_frame[target_column])
         return self
 
